@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
 import pytest
@@ -128,6 +128,52 @@ async def test_coordinator_restore_zone(
     await coordinator.async_restore_zone(snapshot)
 
     mock_amp.restore_zone.assert_called_once_with(snapshot)
+
+
+async def test_set_commands_do_not_request_refresh(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Set commands must not start a full multi-zone poll.
+
+    Entities already publish optimistic state. An immediate refresh is one
+    status query per zone at 9600 baud, and rapid clicks queue those polls
+    back to back.
+    """
+    mock_amp.set_bass = AsyncMock()
+    mock_amp.set_treble = AsyncMock()
+    mock_amp.set_balance = AsyncMock()
+
+    with patch.object(
+        coordinator, 'async_request_refresh', new_callable=AsyncMock
+    ) as refresh:
+        await coordinator.async_set_zone_power(11, True)
+        await coordinator.async_set_zone_source(11, 2)
+        await coordinator.async_set_zone_volume(11, 10)
+        await coordinator.async_set_zone_mute(11, True)
+        await coordinator.async_set_zone_bass(11, 7)
+        await coordinator.async_set_zone_treble(11, 7)
+        await coordinator.async_set_zone_balance(11, 10)
+
+    refresh.assert_not_called()
+    mock_amp.set_power.assert_awaited_once_with(11, True)
+    mock_amp.set_balance.assert_awaited_once_with(11, 10)
+
+
+async def test_restore_still_requests_refresh(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Restore has no optimistic update, so one refresh still confirms it."""
+    snapshot = {'power': True, 'volume': 30, 'mute': False, 'source': 2}
+
+    with patch.object(
+        coordinator, 'async_request_refresh', new_callable=AsyncMock
+    ) as refresh:
+        await coordinator.async_restore_zone(snapshot)
+
+    mock_amp.restore_zone.assert_awaited_once_with(snapshot)
+    refresh.assert_awaited_once()
 
 
 async def test_coordinator_set_power_error_handling(
