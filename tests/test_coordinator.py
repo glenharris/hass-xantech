@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
@@ -65,6 +66,133 @@ async def test_coordinator_update_partial_failure(
     assert 11 in coordinator.data
     assert 13 in coordinator.data
     assert 12 not in coordinator.data
+
+
+def _zone(volume: int, *, power: bool = True, source: int = 1) -> dict:
+    return {'power': power, 'volume': volume, 'mute': False, 'source': source}
+
+
+async def test_empty_status_keeps_previous_zone(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """A None poll must not wipe the zone to empty/OFF."""
+    await coordinator.async_refresh()
+
+    async def zone_status(zone_id: int) -> dict | None:
+        if zone_id == 12:
+            return None
+        return _zone(21)
+
+    mock_amp.zone_status = AsyncMock(side_effect=zone_status)
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success
+    assert coordinator.data[12]['volume'] == 20
+    assert coordinator.data[12]['power'] is True
+    assert coordinator.data[11]['volume'] == 21
+    assert coordinator._consecutive_errors == 0
+
+
+async def test_zone_exception_keeps_previous_zone(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """An exception for one zone must not drop its last known state."""
+    await coordinator.async_refresh()
+
+    async def zone_status(zone_id: int) -> dict | None:
+        if zone_id == 12:
+            raise RuntimeError('serial timeout')
+        return _zone(1, power=False)
+
+    mock_amp.zone_status = AsyncMock(side_effect=zone_status)
+    await coordinator.async_refresh()
+
+    assert coordinator.data[12]['volume'] == 20
+    assert coordinator.data[11]['power'] is False
+    assert coordinator._consecutive_errors == 0
+
+
+async def test_partial_status_merges_with_previous(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Fields omitted by a partial status stay at their last known values."""
+    await coordinator.async_refresh()
+
+    async def zone_status(zone_id: int) -> dict | None:
+        if zone_id == 11:
+            return {'volume': 5}
+        return _zone(20)
+
+    mock_amp.zone_status = AsyncMock(side_effect=zone_status)
+    await coordinator.async_refresh()
+
+    assert coordinator.data[11]['volume'] == 5
+    assert coordinator.data[11]['power'] is True
+    assert coordinator.data[11]['source'] == 1
+    assert coordinator.data[11]['mute'] is False
+
+
+async def test_zone_miss_warns_periodically(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Warn at the miss threshold, then again every threshold polls, not each one."""
+    await coordinator.async_refresh()
+    mock_amp.zone_status = AsyncMock(return_value=None)
+
+    def stale_warnings() -> list[logging.LogRecord]:
+        return [record for record in caplog.records if 'may be stale' in record.message]
+
+    with caplog.at_level(logging.WARNING):
+        for _ in range(4):
+            await coordinator.async_refresh()
+        assert stale_warnings() == []
+
+        await coordinator.async_refresh()
+        assert len(stale_warnings()) == len(coordinator.zone_ids)
+
+        await coordinator.async_refresh()
+        assert len(stale_warnings()) == len(coordinator.zone_ids)
+
+        for _ in range(4):
+            await coordinator.async_refresh()
+        assert len(stale_warnings()) == len(coordinator.zone_ids) * 2
+
+
+async def test_consecutive_errors_when_every_zone_misses(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A single live zone clears the error count; a fully dead cycle increments it."""
+    await coordinator.async_refresh()
+
+    async def one_zone_ok(zone_id: int) -> dict | None:
+        if zone_id == 11:
+            return _zone(9)
+        return None
+
+    mock_amp.zone_status = AsyncMock(side_effect=one_zone_ok)
+    for _ in range(6):
+        await coordinator.async_refresh()
+    assert coordinator._consecutive_errors == 0
+
+    mock_amp.zone_status = AsyncMock(return_value=None)
+    for _ in range(4):
+        await coordinator.async_refresh()
+    assert coordinator._consecutive_errors == 4
+
+    with caplog.at_level(logging.ERROR):
+        await coordinator.async_refresh()
+
+    assert coordinator._consecutive_errors == 5
+    assert coordinator.last_update_success
+    assert coordinator.data[11]['volume'] == 9
+    assert any('no zone returned status' in record.message for record in caplog.records)
 
 
 async def test_coordinator_set_zone_power(

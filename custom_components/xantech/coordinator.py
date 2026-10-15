@@ -48,6 +48,31 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         self.zone_ids = zone_ids
         self._consecutive_errors = 0
         self._max_consecutive_errors = 5
+        self._zone_miss_count: dict[int, int] = dict.fromkeys(zone_ids, 0)
+        self._zone_miss_warn_threshold = 5
+
+    def _record_zone_miss(self, zone_id: int, *, empty: bool) -> None:
+        """Count a missed poll and warn periodically once state may be stale.
+
+        Warnings fire at the threshold and every threshold misses after that,
+        so a dead zone does not log on every scan_interval.
+        """
+        misses = self._zone_miss_count.get(zone_id, 0) + 1
+        self._zone_miss_count[zone_id] = misses
+        threshold = self._zone_miss_warn_threshold
+        if misses >= threshold and misses % threshold == 0:
+            LOG.warning(
+                'Zone %d has returned no status for %d consecutive polls;'
+                ' data may be stale',
+                zone_id,
+                misses,
+            )
+            return
+        if empty:
+            LOG.debug(
+                'No status returned for zone %d, keeping previous state',
+                zone_id,
+            )
 
     async def _async_update_data(self) -> dict[int, dict[str, Any]]:
         """Fetch data from the amplifier for all zones.
@@ -55,24 +80,52 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         Returns:
             Dictionary mapping zone_id to zone status dict
         """
-        zone_statuses: dict[int, dict[str, Any]] = {}
+        # Seed from the last snapshot so a missed zone stays at its previous
+        # state instead of disappearing (entities then read {} and show OFF).
+        previous = self.data or {}
+        zone_statuses: dict[int, dict[str, Any]] = {
+            zone_id: dict(previous[zone_id])
+            for zone_id in self.zone_ids
+            if zone_id in previous
+        }
+        zones_updated = 0
 
         try:
             for zone_id in self.zone_ids:
                 try:
                     status = await self.amp.zone_status(zone_id)
-                    if status:
-                        zone_statuses[zone_id] = status
-                    else:
-                        LOG.debug('No status returned for zone %d', zone_id)
                 except Exception:
                     LOG.warning(
                         'Failed to get status for zone %d', zone_id, exc_info=True
                     )
-                    # continue with other zones even if one fails
+                    self._record_zone_miss(zone_id, empty=False)
+                    continue
 
-            # reset error counter on success
-            self._consecutive_errors = 0
+                if not status:
+                    self._record_zone_miss(zone_id, empty=True)
+                    continue
+
+                # zone_status() can be partial (Sonance multi-query returns only
+                # the fields that matched). Merge so omitted keys keep prior values.
+                prev = zone_statuses.get(zone_id, {})
+                zone_statuses[zone_id] = {**prev, **status}
+                self._zone_miss_count[zone_id] = 0
+                zones_updated += 1
+
+            # One flaky zone must not look like a dead amplifier. A cycle where
+            # every configured zone missed does, because preserved state would
+            # otherwise stay "successful" forever.
+            if zones_updated or not self.zone_ids:
+                self._consecutive_errors = 0
+            else:
+                self._consecutive_errors += 1
+                if self._consecutive_errors >= self._max_consecutive_errors:
+                    LOG.error(
+                        'Failed to update %s: no zone returned status for %d'
+                        ' consecutive cycles',
+                        self.amp_name,
+                        self._consecutive_errors,
+                    )
 
             LOG.debug('Updated %d zones for %s', len(zone_statuses), self.amp_name)
             return zone_statuses
