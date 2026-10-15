@@ -181,7 +181,12 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         if volume is None:
             return None
         vol_range = self._max_volume - self._min_volume
-        return (volume - self._min_volume) / vol_range
+        # Equal bounds are a bad device config; don't raise on every render.
+        if vol_range <= 0:
+            return None
+        # Raw volume can sit outside the configured range (for example 0 at
+        # power-on when a floor is set), which would otherwise be negative.
+        return max(0.0, min(1.0, (volume - self._min_volume) / vol_range))
 
     @property
     def is_volume_muted(self) -> bool:
@@ -260,6 +265,14 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
     async def async_set_volume_level(self, volume: float) -> None:
         """Set volume level, range 0-1.0."""
         vol_range = self._max_volume - self._min_volume
+        if vol_range <= 0:
+            LOG.warning(
+                'Ignoring volume change for zone %d: invalid range min=%s max=%s',
+                self._zone_id,
+                self._min_volume,
+                self._max_volume,
+            )
+            return
         amp_volume = int(volume * vol_range) + self._min_volume
         LOG.debug('Setting zone %d volume to %d', self._zone_id, amp_volume)
         self._set_optimistic(volume=amp_volume)

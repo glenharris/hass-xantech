@@ -52,13 +52,18 @@ def zone_player(
     sources: dict[int, str],
 ) -> ZoneMediaPlayer:
     """Create a zone media player for testing."""
-    return ZoneMediaPlayer(
+    player = ZoneMediaPlayer(
         coordinator=coordinator,
         entry=mock_config_entry,
         zone_id=11,
         zone_name='Living Room',
         sources=sources,
+        amp_type='xantech8',
     )
+    # Command tests write optimistic state; the entity is not added via a platform.
+    player.hass = coordinator.hass
+    player.entity_id = 'media_player.living_room'
+    return player
 
 
 async def test_zone_player_state_on(zone_player: ZoneMediaPlayer) -> None:
@@ -78,6 +83,7 @@ async def test_zone_player_state_off(
         zone_id=12,
         zone_name='Kitchen',
         sources=sources,
+        amp_type='xantech8',
     )
     assert player.state == MediaPlayerState.OFF
 
@@ -87,6 +93,44 @@ async def test_zone_player_volume_level(zone_player: ZoneMediaPlayer) -> None:
     # volume is 20 out of MAX_VOLUME (38)
     expected = 20 / MAX_VOLUME
     assert zone_player.volume_level == pytest.approx(expected)
+
+
+async def test_zone_player_volume_level_clamped(
+    zone_player: ZoneMediaPlayer,
+    coordinator: XantechCoordinator,
+) -> None:
+    """Raw volume outside the amp range must still be a HA 0..1 level."""
+    assert coordinator.data is not None
+    coordinator.data[11]['volume'] = -5
+    assert zone_player.volume_level == 0.0
+
+    coordinator.data[11]['volume'] = MAX_VOLUME + 20
+    assert zone_player.volume_level == 1.0
+
+
+async def test_zone_player_volume_level_invalid_range(
+    zone_player: ZoneMediaPlayer,
+    coordinator: XantechCoordinator,
+) -> None:
+    """Equal min and max must not raise when the slider is rendered or moved."""
+    with (
+        patch.object(
+            ZoneMediaPlayer,
+            '_min_volume',
+            new=property(lambda self: 10),
+        ),
+        patch.object(
+            ZoneMediaPlayer,
+            '_max_volume',
+            new=property(lambda self: 10),
+        ),
+        patch.object(
+            coordinator, 'async_set_zone_volume', new_callable=AsyncMock
+        ) as mock_volume,
+    ):
+        assert zone_player.volume_level is None
+        await zone_player.async_set_volume_level(0.5)
+        mock_volume.assert_not_called()
 
 
 async def test_zone_player_mute_status(zone_player: ZoneMediaPlayer) -> None:
@@ -127,6 +171,7 @@ async def test_zone_player_icon_off(
         zone_id=12,
         zone_name='Kitchen',
         sources=sources,
+        amp_type='xantech8',
     )
     assert player.icon == 'mdi:speaker-off'
 
