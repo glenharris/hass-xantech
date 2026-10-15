@@ -160,7 +160,7 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             raise
 
     async def async_set_zone_volume(self, zone_id: int, volume: int) -> None:
-        """Set volume for a zone (0-38 scale)."""
+        """Set volume for a zone (device-specific scale)."""
         try:
             await self.amp.set_volume(zone_id, volume)
         except Exception:
@@ -176,7 +176,7 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             raise
 
     async def async_set_zone_bass(self, zone_id: int, bass: int) -> None:
-        """Set bass level for a zone (0-14, where 7 is neutral)."""
+        """Set bass level for a zone (device-specific scale)."""
         try:
             await self.amp.set_bass(zone_id, bass)
         except Exception:
@@ -184,7 +184,7 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             raise
 
     async def async_set_zone_treble(self, zone_id: int, treble: int) -> None:
-        """Set treble level for a zone (0-14, where 7 is neutral)."""
+        """Set treble level for a zone (device-specific scale)."""
         try:
             await self.amp.set_treble(zone_id, treble)
         except Exception:
@@ -192,7 +192,7 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
             raise
 
     async def async_set_zone_balance(self, zone_id: int, balance: int) -> None:
-        """Set balance for a zone (0-20, where 10 is center)."""
+        """Set balance for a zone (device-specific scale)."""
         try:
             await self.amp.set_balance(zone_id, balance)
         except Exception:

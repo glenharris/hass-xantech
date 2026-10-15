@@ -14,14 +14,12 @@ from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from pyxantech import get_device_config
 
 from .const import (
-    AMP_TYPE_SONANCE6,
     CONF_ZONES,
     DOMAIN,
     MAX_VOLUME,
-    SONANCE6_MAX_VOLUME,
-    SONANCE6_MIN_VOLUME,
 )
 from .coordinator import XantechCoordinator
 
@@ -29,6 +27,18 @@ if TYPE_CHECKING:
     from . import XantechConfigEntry
 
 LOG = logging.getLogger(__name__)
+
+
+def _device_int(amp_type: str, key: str, default: int) -> int:
+    """Return an int from device config, or default when the key is absent.
+
+    A configured 0 must be kept. ``value or default`` would treat 0 as missing.
+    """
+    value = get_device_config(amp_type, key, log_missing=False)
+    if value is None:
+        return default
+    return int(value)
+
 
 SUPPORTED_ZONE_FEATURES = (
     MediaPlayerEntityFeature.VOLUME_MUTE
@@ -134,7 +144,7 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         Expected types from pyxantech ZoneStatus.dict:
             power: bool (not string '01'/'00')
             mute: bool
-            volume: int (0-38)
+            volume: int (device scale)
             source: int
             zone: int
         """
@@ -196,16 +206,12 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
     @property
     def _max_volume(self) -> int:
         """Hardware maximum volume for this amp type."""
-        if self._amp_type == AMP_TYPE_SONANCE6:
-            return SONANCE6_MAX_VOLUME
-        return MAX_VOLUME
+        return _device_int(self._amp_type, 'max_volume', MAX_VOLUME)
 
     @property
     def _min_volume(self) -> int:
-        """Hardware minimum usable volume for this amp type."""
-        if self._amp_type == AMP_TYPE_SONANCE6:
-            return SONANCE6_MIN_VOLUME
-        return 0
+        """Hardware minimum volume for this amp type."""
+        return _device_int(self._amp_type, 'min_volume', 0)
 
     @property
     def source(self) -> str | None:

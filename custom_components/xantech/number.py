@@ -13,19 +13,15 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from pyxantech import get_device_config
 
 from .const import (
-    AMP_TYPE_SONANCE6,
     CONF_ENABLE_AUDIO_CONTROLS,
     CONF_ZONES,
     DEFAULT_MAX_BALANCE,
     DEFAULT_MAX_BASS,
     DEFAULT_MAX_TREBLE,
+    DEFAULT_MIN_BALANCE,
+    DEFAULT_MIN_BASS,
+    DEFAULT_MIN_TREBLE,
     DOMAIN,
-    SONANCE6_MAX_BALANCE,
-    SONANCE6_MAX_BASS,
-    SONANCE6_MAX_TREBLE,
-    SONANCE6_MIN_BALANCE,
-    SONANCE6_MIN_BASS,
-    SONANCE6_MIN_TREBLE,
 )
 from .coordinator import XantechCoordinator
 
@@ -33,6 +29,17 @@ if TYPE_CHECKING:
     from . import XantechConfigEntry
 
 LOG = logging.getLogger(__name__)
+
+
+def _device_int(amp_type: str, key: str, default: int) -> int:
+    """Return an int from device config, or default when the key is absent.
+
+    A configured 0 must be kept. ``value or default`` would treat 0 as missing.
+    """
+    value = get_device_config(amp_type, key, log_missing=False)
+    if value is None:
+        return default
+    return int(value)
 
 
 async def async_setup_entry(
@@ -65,18 +72,14 @@ async def async_setup_entry(
         LOG.debug('Device %s does not support any tone controls', amp_type)
         return
 
-    # get device-specific limits; Sonance6 uses signed ranges
-    if amp_type == AMP_TYPE_SONANCE6:
-        min_bass, max_bass = SONANCE6_MIN_BASS, SONANCE6_MAX_BASS
-        min_treble, max_treble = SONANCE6_MIN_TREBLE, SONANCE6_MAX_TREBLE
-        min_balance, max_balance = SONANCE6_MIN_BALANCE, SONANCE6_MAX_BALANCE
-    else:
-        min_bass = 0
-        max_bass = get_device_config(amp_type, 'max_bass', log_missing=False) or DEFAULT_MAX_BASS
-        min_treble = 0
-        max_treble = get_device_config(amp_type, 'max_treble', log_missing=False) or DEFAULT_MAX_TREBLE
-        min_balance = 0
-        max_balance = get_device_config(amp_type, 'max_balance', log_missing=False) or DEFAULT_MAX_BALANCE
+    # Published by pyxantech. Missing mins fall back to 0 (the unsigned range).
+    # Signed Sonance limits are used when the library defines them.
+    min_bass = _device_int(amp_type, 'min_bass', DEFAULT_MIN_BASS)
+    max_bass = _device_int(amp_type, 'max_bass', DEFAULT_MAX_BASS)
+    min_treble = _device_int(amp_type, 'min_treble', DEFAULT_MIN_TREBLE)
+    max_treble = _device_int(amp_type, 'max_treble', DEFAULT_MAX_TREBLE)
+    min_balance = _device_int(amp_type, 'min_balance', DEFAULT_MIN_BALANCE)
+    max_balance = _device_int(amp_type, 'max_balance', DEFAULT_MAX_BALANCE)
 
     zones_config = entry.data.get(CONF_ZONES, {})
 
