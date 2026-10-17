@@ -45,6 +45,29 @@ def sources() -> dict[int, str]:
     return {1: 'Sonos', 2: 'Turntable', 3: 'TV'}
 
 
+def make_zone_player(
+    coordinator: XantechCoordinator,
+    entry: MagicMock,
+    sources: dict[int, str],
+    *,
+    zone_id: int,
+    zone_name: str,
+    amp_type: str = 'xantech8',
+) -> ZoneMediaPlayer:
+    """Create a zone media player that can publish optimistic state."""
+    player = ZoneMediaPlayer(
+        coordinator=coordinator,
+        entry=entry,
+        zone_id=zone_id,
+        zone_name=zone_name,
+        sources=sources,
+        amp_type=amp_type,
+    )
+    player.hass = coordinator.hass
+    player.entity_id = f'media_player.zone_{zone_id}'
+    return player
+
+
 @pytest.fixture
 def zone_player(
     coordinator: XantechCoordinator,
@@ -52,12 +75,12 @@ def zone_player(
     sources: dict[int, str],
 ) -> ZoneMediaPlayer:
     """Create a zone media player for testing."""
-    return ZoneMediaPlayer(
-        coordinator=coordinator,
-        entry=mock_config_entry,
+    return make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
         zone_id=11,
         zone_name='Living Room',
-        sources=sources,
     )
 
 
@@ -72,12 +95,12 @@ async def test_zone_player_state_off(
     sources: dict[int, str],
 ) -> None:
     """Test zone player reports OFF state correctly."""
-    player = ZoneMediaPlayer(
-        coordinator=coordinator,
-        entry=mock_config_entry,
+    player = make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
         zone_id=12,
         zone_name='Kitchen',
-        sources=sources,
     )
     assert player.state == MediaPlayerState.OFF
 
@@ -121,12 +144,12 @@ async def test_zone_player_icon_off(
     sources: dict[int, str],
 ) -> None:
     """Test zone player icon when off."""
-    player = ZoneMediaPlayer(
-        coordinator=coordinator,
-        entry=mock_config_entry,
+    player = make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
         zone_id=12,
         zone_name='Kitchen',
-        sources=sources,
     )
     assert player.icon == 'mdi:speaker-off'
 

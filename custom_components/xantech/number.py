@@ -72,11 +72,20 @@ async def async_setup_entry(
         min_balance, max_balance = SONANCE6_MIN_BALANCE, SONANCE6_MAX_BALANCE
     else:
         min_bass = 0
-        max_bass = get_device_config(amp_type, 'max_bass', log_missing=False) or DEFAULT_MAX_BASS
+        max_bass = (
+            get_device_config(amp_type, 'max_bass', log_missing=False)
+            or DEFAULT_MAX_BASS
+        )
         min_treble = 0
-        max_treble = get_device_config(amp_type, 'max_treble', log_missing=False) or DEFAULT_MAX_TREBLE
+        max_treble = (
+            get_device_config(amp_type, 'max_treble', log_missing=False)
+            or DEFAULT_MAX_TREBLE
+        )
         min_balance = 0
-        max_balance = get_device_config(amp_type, 'max_balance', log_missing=False) or DEFAULT_MAX_BALANCE
+        max_balance = (
+            get_device_config(amp_type, 'max_balance', log_missing=False)
+            or DEFAULT_MAX_BALANCE
+        )
 
     zones_config = entry.data.get(CONF_ZONES, {})
 
@@ -164,10 +173,8 @@ class ZoneAudioControlNumber(CoordinatorEntity[XantechCoordinator], NumberEntity
         self._pending_commands: int = 0
 
         # entity attributes
-        self._attr_unique_id = (
-            f'{DOMAIN}_{coordinator.amp_name}_zone_{zone_id}_{control_key}'.lower()
-            .replace(' ', '_')
-        )
+        raw_unique_id = f'{DOMAIN}_{coordinator.amp_name}_zone_{zone_id}_{control_key}'
+        self._attr_unique_id = raw_unique_id.lower().replace(' ', '_')
         self._attr_name = f'{zone_name} {name_suffix}'
         self._attr_translation_key = control_key
 
