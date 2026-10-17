@@ -5,8 +5,10 @@ description = "Home Assistant integration for Xantech Multi-Zone Audio amplifier
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.13"
+# Same pin as custom_components/xantech/manifest.json.
+# Switch both to pyxantech>=0.10.8 once that release is on PyPI.
 dependencies = [
-    "pyxantech>=0.10.5",
+    "pyxantech @ git+https://github.com/rsnodgrass/pyxantech@1d5e123fe592f4180a0395aa6ca875c614770086",
 ]
 
 [project.optional-dependencies]
