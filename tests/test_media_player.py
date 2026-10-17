@@ -45,6 +45,31 @@ def sources() -> dict[int, str]:
     return {1: 'Sonos', 2: 'Turntable', 3: 'TV'}
 
 
+def make_zone_player(
+    coordinator: XantechCoordinator,
+    entry: MagicMock,
+    sources: dict[int, str],
+    *,
+    zone_id: int,
+    zone_name: str,
+    min_volume: int = 0,
+    max_volume: int = MAX_VOLUME,
+) -> ZoneMediaPlayer:
+    """Create a zone media player that can publish optimistic state."""
+    player = ZoneMediaPlayer(
+        coordinator=coordinator,
+        entry=entry,
+        zone_id=zone_id,
+        zone_name=zone_name,
+        sources=sources,
+        min_volume=min_volume,
+        max_volume=max_volume,
+    )
+    player.hass = coordinator.hass
+    player.entity_id = f'media_player.zone_{zone_id}'
+    return player
+
+
 @pytest.fixture
 def zone_player(
     coordinator: XantechCoordinator,
@@ -52,12 +77,12 @@ def zone_player(
     sources: dict[int, str],
 ) -> ZoneMediaPlayer:
     """Create a zone media player for testing."""
-    return ZoneMediaPlayer(
-        coordinator=coordinator,
-        entry=mock_config_entry,
+    return make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
         zone_id=11,
         zone_name='Living Room',
-        sources=sources,
     )
 
 
@@ -72,12 +97,12 @@ async def test_zone_player_state_off(
     sources: dict[int, str],
 ) -> None:
     """Test zone player reports OFF state correctly."""
-    player = ZoneMediaPlayer(
-        coordinator=coordinator,
-        entry=mock_config_entry,
+    player = make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
         zone_id=12,
         zone_name='Kitchen',
-        sources=sources,
     )
     assert player.state == MediaPlayerState.OFF
 
@@ -87,6 +112,141 @@ async def test_zone_player_volume_level(zone_player: ZoneMediaPlayer) -> None:
     # volume is 20 out of MAX_VOLUME (38)
     expected = 20 / MAX_VOLUME
     assert zone_player.volume_level == pytest.approx(expected)
+
+
+async def test_volume_level_clamped_to_ha_range(
+    zone_player: ZoneMediaPlayer,
+    coordinator: XantechCoordinator,
+) -> None:
+    """A raw volume outside the device range is still a Home Assistant 0-1 level."""
+    assert coordinator.data is not None
+    coordinator.data[11]['volume'] = -5
+    assert zone_player.volume_level == 0.0
+
+    coordinator.data[11]['volume'] = MAX_VOLUME + 20
+    assert zone_player.volume_level == 1.0
+
+
+async def test_volume_maps_onto_device_range(
+    coordinator: XantechCoordinator,
+    mock_config_entry: MagicMock,
+    sources: dict[int, str],
+) -> None:
+    """Home Assistant 0-1 maps onto the device's own min and max."""
+    player = make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
+        zone_id=11,
+        zone_name='Living Room',
+        min_volume=0,
+        max_volume=60,
+    )
+    assert coordinator.data is not None
+
+    coordinator.data[11]['volume'] = 0
+    assert player.volume_level == 0.0
+    coordinator.data[11]['volume'] = 30
+    assert player.volume_level == pytest.approx(0.5)
+    coordinator.data[11]['volume'] = 60
+    assert player.volume_level == 1.0
+
+    with patch.object(
+        coordinator, 'async_set_zone_volume', new_callable=AsyncMock
+    ) as mock_volume:
+        await player.async_set_volume_level(0.0)
+        await player.async_set_volume_level(0.5)
+        await player.async_set_volume_level(1.0)
+        await player.async_set_volume_level(1.2)
+        await player.async_set_volume_level(-0.4)
+
+    assert [call.args for call in mock_volume.await_args_list] == [
+        (11, 0),
+        (11, 30),
+        (11, 60),
+        (11, 60),
+        (11, 0),
+    ]
+
+
+async def test_volume_set_rounds_to_device_step(
+    coordinator: XantechCoordinator,
+    mock_config_entry: MagicMock,
+    sources: dict[int, str],
+) -> None:
+    """Conversion uses round(), then clamps to the device range."""
+    player = make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
+        zone_id=11,
+        zone_name='Living Room',
+        min_volume=10,
+        max_volume=20,
+    )
+    assert coordinator.data is not None
+    coordinator.data[11]['volume'] = 15
+    assert player.volume_level == pytest.approx(0.5)
+
+    with patch.object(
+        coordinator, 'async_set_zone_volume', new_callable=AsyncMock
+    ) as mock_volume:
+        # 0.15 * 10 = 1.5, which round() takes to 2, then shifts by min 10.
+        await player.async_set_volume_level(0.15)
+
+    mock_volume.assert_awaited_once_with(11, 12)
+
+
+async def test_volume_up_stops_at_device_max(
+    coordinator: XantechCoordinator,
+    mock_config_entry: MagicMock,
+    sources: dict[int, str],
+) -> None:
+    """Volume up does not walk past the device maximum."""
+    player = make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
+        zone_id=11,
+        zone_name='Living Room',
+        min_volume=0,
+        max_volume=60,
+    )
+    assert coordinator.data is not None
+    coordinator.data[11]['volume'] = 60
+
+    with patch.object(
+        coordinator, 'async_set_zone_volume', new_callable=AsyncMock
+    ) as mock_volume:
+        await player.async_volume_up()
+
+    mock_volume.assert_awaited_once_with(11, 60)
+
+
+async def test_volume_down_stops_at_device_min(
+    coordinator: XantechCoordinator,
+    mock_config_entry: MagicMock,
+    sources: dict[int, str],
+) -> None:
+    """Volume down does not walk past the device minimum."""
+    player = make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
+        zone_id=11,
+        zone_name='Living Room',
+        min_volume=10,
+        max_volume=60,
+    )
+    assert coordinator.data is not None
+    coordinator.data[11]['volume'] = 10
+
+    with patch.object(
+        coordinator, 'async_set_zone_volume', new_callable=AsyncMock
+    ) as mock_volume:
+        await player.async_volume_down()
+
+    mock_volume.assert_awaited_once_with(11, 10)
 
 
 async def test_zone_player_mute_status(zone_player: ZoneMediaPlayer) -> None:
@@ -121,12 +281,12 @@ async def test_zone_player_icon_off(
     sources: dict[int, str],
 ) -> None:
     """Test zone player icon when off."""
-    player = ZoneMediaPlayer(
-        coordinator=coordinator,
-        entry=mock_config_entry,
+    player = make_zone_player(
+        coordinator,
+        mock_config_entry,
+        sources,
         zone_id=12,
         zone_name='Kitchen',
-        sources=sources,
     )
     assert player.icon == 'mdi:speaker-off'
 

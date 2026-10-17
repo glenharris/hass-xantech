@@ -28,6 +28,7 @@ from .const import (
     SERVICE_SNAPSHOT,
 )
 from .coordinator import XantechCoordinator
+from .device_config import AmpLimits, read_amp_limits
 
 if TYPE_CHECKING:
     from pyxantech import AmpControlBase
@@ -46,6 +47,7 @@ class XantechData:
         amp: AmpControlBase,
         amp_type: str,
         sources: dict[int, str],
+        limits: AmpLimits,
         enable_audio_controls: bool = False,
     ) -> None:
         """Initialize runtime data."""
@@ -53,6 +55,7 @@ class XantechData:
         self.amp = amp
         self.amp_type = amp_type
         self.sources = sources
+        self.limits = limits
         self.enable_audio_controls = enable_audio_controls
 
 
@@ -63,8 +66,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
 async def async_setup_entry(hass: HomeAssistant, entry: XantechConfigEntry) -> bool:
     """Set up Xantech Multi-Zone Amplifier from a config entry."""
-    port = entry.data[CONF_PORT]
     amp_type = entry.data[CONF_AMP_TYPE]
+    # Platforms must not raise ConfigEntryError. Home Assistant catches that
+    # and continues without the entities, so the range check happens here.
+    limits = read_amp_limits(amp_type)
+
+    port = entry.data[CONF_PORT]
     zones_config = entry.data.get(CONF_ZONES, {})
     sources_config = entry.data.get(CONF_SOURCES, {})
 
@@ -115,6 +122,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: XantechConfigEntry) -> b
         amp=amp,
         amp_type=amp_type,
         sources=sources,
+        limits=limits,
         enable_audio_controls=enable_audio_controls,
     )
 
