@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.update_coordinator import UpdateFailed
 import pytest
 
 from custom_components.xantech.coordinator import XantechCoordinator
@@ -65,6 +66,153 @@ async def test_coordinator_update_partial_failure(
     assert 11 in coordinator.data
     assert 13 in coordinator.data
     assert 12 not in coordinator.data
+
+
+def _zone(volume: int, *, power: bool = True, source: int = 1) -> dict:
+    return {'power': power, 'volume': volume, 'mute': False, 'source': source}
+
+
+async def test_partial_status_merges_with_previous(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Fields a poll leaves out keep their last known values."""
+    await coordinator.async_refresh()
+
+    async def volume_only(zone_id: int) -> dict | None:
+        if zone_id == 11:
+            return {'volume': 0}
+        return _zone(20)
+
+    mock_amp.zone_status = AsyncMock(side_effect=volume_only)
+    await coordinator.async_refresh()
+
+    assert coordinator.data[11]['volume'] == 0
+    assert coordinator.data[11]['power'] is True
+    assert coordinator.data[11]['mute'] is False
+    assert coordinator.data[11]['source'] == 1
+
+    async def power_only(zone_id: int) -> dict | None:
+        if zone_id == 11:
+            return {'power': False}
+        return _zone(20)
+
+    mock_amp.zone_status = AsyncMock(side_effect=power_only)
+    await coordinator.async_refresh()
+
+    assert coordinator.data[11]['power'] is False
+    assert coordinator.data[11]['volume'] == 0
+
+
+async def test_miss_keeps_previous_zone(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """A zone that does not answer stays at its last known state."""
+    await coordinator.async_refresh()
+
+    async def zone_status(zone_id: int) -> dict | None:
+        if zone_id == 12:
+            return None
+        return _zone(1, power=False)
+
+    mock_amp.zone_status = AsyncMock(side_effect=zone_status)
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success
+    assert coordinator.data[12]['volume'] == 20
+    assert coordinator.data[12]['power'] is True
+    assert coordinator.data[11]['power'] is False
+
+
+async def test_zone_exception_keeps_previous_zone(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """An exception for one zone does not drop its last known state."""
+    await coordinator.async_refresh()
+
+    async def zone_status(zone_id: int) -> dict | None:
+        if zone_id == 12:
+            raise RuntimeError('serial timeout')
+        return _zone(4)
+
+    mock_amp.zone_status = AsyncMock(side_effect=zone_status)
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success
+    assert coordinator.data[12]['volume'] == 20
+    assert coordinator.data[11]['volume'] == 4
+
+
+async def test_no_zone_answering_fails_the_update(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """A poll where every zone misses is an error, not a quiet success."""
+    await coordinator.async_refresh()
+    mock_amp.zone_status = AsyncMock(return_value=None)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
+    assert isinstance(coordinator.last_exception, UpdateFailed)
+    assert coordinator.data[11]['volume'] == 20
+
+
+async def test_first_poll_with_no_answers_fails(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Startup with no zone data does not look like a successful empty poll."""
+    mock_amp.zone_status = AsyncMock(return_value=None)
+
+    await coordinator.async_refresh()
+
+    assert coordinator.last_update_success is False
+    assert isinstance(coordinator.last_exception, UpdateFailed)
+
+
+async def test_set_commands_do_not_request_refresh(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Set commands must not start a full multi-zone poll."""
+    mock_amp.set_bass = AsyncMock()
+    mock_amp.set_treble = AsyncMock()
+    mock_amp.set_balance = AsyncMock()
+
+    with patch.object(
+        coordinator, 'async_request_refresh', new_callable=AsyncMock
+    ) as refresh:
+        await coordinator.async_set_zone_power(11, True)
+        await coordinator.async_set_zone_source(11, 2)
+        await coordinator.async_set_zone_volume(11, 10)
+        await coordinator.async_set_zone_mute(11, True)
+        await coordinator.async_set_zone_bass(11, -4)
+        await coordinator.async_set_zone_treble(11, -2)
+        await coordinator.async_set_zone_balance(11, -10)
+
+    refresh.assert_not_called()
+    mock_amp.set_power.assert_awaited_once_with(11, True)
+    mock_amp.set_bass.assert_awaited_once_with(11, -4)
+    mock_amp.set_balance.assert_awaited_once_with(11, -10)
+
+
+async def test_restore_still_requests_refresh(
+    coordinator: XantechCoordinator,
+    mock_amp: MagicMock,
+) -> None:
+    """Restore has no optimistic state, so one poll still confirms it."""
+    snapshot = {'power': True, 'volume': 30, 'mute': False, 'source': 2}
+
+    with patch.object(
+        coordinator, 'async_request_refresh', new_callable=AsyncMock
+    ) as refresh:
+        await coordinator.async_restore_zone(snapshot)
+
+    mock_amp.restore_zone.assert_awaited_once_with(snapshot)
+    refresh.assert_awaited_once()
 
 
 async def test_coordinator_set_zone_power(
