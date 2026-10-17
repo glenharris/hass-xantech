@@ -36,18 +36,6 @@ AMP_TYPE_ZPR68: Final = 'zpr68-10'
 # sonance6: Sonance C4630 SE (6-zone), 875D MKII (4-zone)
 AMP_TYPE_SONANCE6: Final = 'sonance6'
 
-# Sonance6 volume range: below 40 is inaudibly quiet, physical max is 60
-SONANCE6_MIN_VOLUME: Final = 40
-SONANCE6_MAX_VOLUME: Final = 60
-
-# Sonance6 EQ ranges (signed)
-SONANCE6_MIN_BASS: Final = -8
-SONANCE6_MAX_BASS: Final = 8
-SONANCE6_MIN_TREBLE: Final = -8
-SONANCE6_MAX_TREBLE: Final = 8
-SONANCE6_MIN_BALANCE: Final = -10
-SONANCE6_MAX_BALANCE: Final = 10
-
 SUPPORTED_AMP_TYPES: Final[list[str]] = [
     AMP_TYPE_XANTECH8,
     AMP_TYPE_MONOPRICE6,
@@ -56,12 +44,15 @@ SUPPORTED_AMP_TYPES: Final[list[str]] = [
     AMP_TYPE_SONANCE6,
 ]
 
-# Max volume level for amps
+# Used when pyxantech device config does not define the key.
+DEFAULT_MIN_VOLUME: Final = 0
 MAX_VOLUME: Final = 38
 
-# Audio control fallback defaults (actual values loaded from pyxantech device config)
+DEFAULT_MIN_BASS: Final = 0
 DEFAULT_MAX_BASS: Final = 14
+DEFAULT_MIN_TREBLE: Final = 0
 DEFAULT_MAX_TREBLE: Final = 14
+DEFAULT_MIN_BALANCE: Final = 0
 DEFAULT_MAX_BALANCE: Final = 20
 
 # Service names

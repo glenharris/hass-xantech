@@ -16,14 +16,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
-    AMP_TYPE_SONANCE6,
     CONF_ZONES,
+    DEFAULT_MIN_VOLUME,
     DOMAIN,
     MAX_VOLUME,
-    SONANCE6_MAX_VOLUME,
-    SONANCE6_MIN_VOLUME,
 )
 from .coordinator import XantechCoordinator
+from .device_config import device_config_int
 
 if TYPE_CHECKING:
     from . import XantechConfigEntry
@@ -51,6 +50,16 @@ async def async_setup_entry(
     sources = data.sources
     amp_type = data.amp_type
 
+    min_volume = device_config_int(amp_type, 'min_volume', DEFAULT_MIN_VOLUME)
+    max_volume = device_config_int(amp_type, 'max_volume', MAX_VOLUME)
+    if min_volume >= max_volume:
+        LOG.error(
+            'Invalid volume range for %s: min_volume=%s max_volume=%s',
+            amp_type,
+            min_volume,
+            max_volume,
+        )
+
     zones_config = entry.data.get(CONF_ZONES, {})
 
     entities: list[ZoneMediaPlayer] = []
@@ -66,7 +75,8 @@ async def async_setup_entry(
                 zone_id=zone_id,
                 zone_name=zone_name,
                 sources=sources,
-                amp_type=amp_type,
+                min_volume=min_volume,
+                max_volume=max_volume,
             )
         )
 
@@ -87,14 +97,16 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         zone_id: int,
         zone_name: str,
         sources: dict[int, str],
-        amp_type: str,
+        min_volume: int,
+        max_volume: int,
     ) -> None:
         """Initialize the zone media player."""
         super().__init__(coordinator)
 
         self._zone_id = zone_id
         self._zone_name = zone_name
-        self._amp_type = amp_type
+        self._min_volume = min_volume
+        self._max_volume = max_volume
 
         # source mappings
         self._source_id_to_name = sources
@@ -134,7 +146,7 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         Expected types from pyxantech ZoneStatus.dict:
             power: bool (not string '01'/'00')
             mute: bool
-            volume: int (0-38)
+            volume: int (device scale)
             source: int
             zone: int
         """
@@ -180,27 +192,14 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
         volume = self._zone_status.get('volume')
         if volume is None:
             return None
-        vol_range = self._max_volume - self._min_volume
-        return (volume - self._min_volume) / vol_range
+        span = self._max_volume - self._min_volume
+        level = (volume - self._min_volume) / span
+        return min(1.0, max(0.0, level))
 
     @property
     def is_volume_muted(self) -> bool:
         """Boolean if volume is currently muted."""
         return self._zone_status.get('mute', False)
-
-    @property
-    def _max_volume(self) -> int:
-        """Hardware maximum volume for this amp type."""
-        if self._amp_type == AMP_TYPE_SONANCE6:
-            return SONANCE6_MAX_VOLUME
-        return MAX_VOLUME
-
-    @property
-    def _min_volume(self) -> int:
-        """Hardware minimum usable volume for this amp type."""
-        if self._amp_type == AMP_TYPE_SONANCE6:
-            return SONANCE6_MIN_VOLUME
-        return 0
 
     @property
     def source(self) -> str | None:
@@ -258,9 +257,11 @@ class ZoneMediaPlayer(CoordinatorEntity[XantechCoordinator], MediaPlayerEntity):
             self._command_complete()
 
     async def async_set_volume_level(self, volume: float) -> None:
-        """Set volume level, range 0-1.0."""
-        vol_range = self._max_volume - self._min_volume
-        amp_volume = int(volume * vol_range) + self._min_volume
+        """Set volume level, range 0-1."""
+        volume = min(1.0, max(0.0, volume))
+        span = self._max_volume - self._min_volume
+        amp_volume = round(volume * span) + self._min_volume
+        amp_volume = min(self._max_volume, max(self._min_volume, amp_volume))
         LOG.debug('Setting zone %d volume to %d', self._zone_id, amp_volume)
         self._set_optimistic(volume=amp_volume)
         try:

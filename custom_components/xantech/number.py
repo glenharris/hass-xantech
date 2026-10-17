@@ -13,21 +13,18 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from pyxantech import get_device_config
 
 from .const import (
-    AMP_TYPE_SONANCE6,
     CONF_ENABLE_AUDIO_CONTROLS,
     CONF_ZONES,
     DEFAULT_MAX_BALANCE,
     DEFAULT_MAX_BASS,
     DEFAULT_MAX_TREBLE,
+    DEFAULT_MIN_BALANCE,
+    DEFAULT_MIN_BASS,
+    DEFAULT_MIN_TREBLE,
     DOMAIN,
-    SONANCE6_MAX_BALANCE,
-    SONANCE6_MAX_BASS,
-    SONANCE6_MAX_TREBLE,
-    SONANCE6_MIN_BALANCE,
-    SONANCE6_MIN_BASS,
-    SONANCE6_MIN_TREBLE,
 )
 from .coordinator import XantechCoordinator
+from .device_config import device_config_int
 
 if TYPE_CHECKING:
     from . import XantechConfigEntry
@@ -65,18 +62,33 @@ async def async_setup_entry(
         LOG.debug('Device %s does not support any tone controls', amp_type)
         return
 
-    # get device-specific limits; Sonance6 uses signed ranges
-    if amp_type == AMP_TYPE_SONANCE6:
-        min_bass, max_bass = SONANCE6_MIN_BASS, SONANCE6_MAX_BASS
-        min_treble, max_treble = SONANCE6_MIN_TREBLE, SONANCE6_MAX_TREBLE
-        min_balance, max_balance = SONANCE6_MIN_BALANCE, SONANCE6_MAX_BALANCE
-    else:
-        min_bass = 0
-        max_bass = get_device_config(amp_type, 'max_bass', log_missing=False) or DEFAULT_MAX_BASS
-        min_treble = 0
-        max_treble = get_device_config(amp_type, 'max_treble', log_missing=False) or DEFAULT_MAX_TREBLE
-        min_balance = 0
-        max_balance = get_device_config(amp_type, 'max_balance', log_missing=False) or DEFAULT_MAX_BALANCE
+    min_bass = device_config_int(amp_type, 'min_bass', DEFAULT_MIN_BASS)
+    max_bass = device_config_int(amp_type, 'max_bass', DEFAULT_MAX_BASS)
+    min_treble = device_config_int(amp_type, 'min_treble', DEFAULT_MIN_TREBLE)
+    max_treble = device_config_int(amp_type, 'max_treble', DEFAULT_MAX_TREBLE)
+    min_balance = device_config_int(amp_type, 'min_balance', DEFAULT_MIN_BALANCE)
+    max_balance = device_config_int(amp_type, 'max_balance', DEFAULT_MAX_BALANCE)
+    if min_bass >= max_bass:
+        LOG.error(
+            'Invalid bass range for %s: min_bass=%s max_bass=%s',
+            amp_type,
+            min_bass,
+            max_bass,
+        )
+    if min_treble >= max_treble:
+        LOG.error(
+            'Invalid treble range for %s: min_treble=%s max_treble=%s',
+            amp_type,
+            min_treble,
+            max_treble,
+        )
+    if min_balance >= max_balance:
+        LOG.error(
+            'Invalid balance range for %s: min_balance=%s max_balance=%s',
+            amp_type,
+            min_balance,
+            max_balance,
+        )
 
     zones_config = entry.data.get(CONF_ZONES, {})
 
@@ -164,9 +176,8 @@ class ZoneAudioControlNumber(CoordinatorEntity[XantechCoordinator], NumberEntity
         self._pending_commands: int = 0
 
         # entity attributes
-        self._attr_unique_id = (
-            f'{DOMAIN}_{coordinator.amp_name}_zone_{zone_id}_{control_key}'.lower()
-            .replace(' ', '_')
+        self._attr_unique_id = f'{DOMAIN}_{coordinator.amp_name}_zone_{zone_id}_{control_key}'.lower().replace(
+            ' ', '_'
         )
         self._attr_name = f'{zone_name} {name_suffix}'
         self._attr_translation_key = control_key
