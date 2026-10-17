@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, patch
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
+import pytest
 from serial import SerialException
 
 from custom_components.xantech.const import (
@@ -14,6 +15,8 @@ from custom_components.xantech.const import (
     CONF_PORT,
     DOMAIN,
 )
+
+pytestmark = pytest.mark.usefixtures('enable_custom_integrations')
 
 
 async def test_user_form_shows_on_init(hass: HomeAssistant) -> None:
