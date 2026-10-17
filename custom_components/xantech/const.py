@@ -56,12 +56,15 @@ SUPPORTED_AMP_TYPES: Final[list[str]] = [
     AMP_TYPE_SONANCE6,
 ]
 
-# Max volume level for amps
+# Missing-key defaults. Sonance uses its own constants when a key is absent.
+DEFAULT_MIN_VOLUME: Final = 0
 MAX_VOLUME: Final = 38
 
-# Audio control fallback defaults (actual values loaded from pyxantech device config)
+DEFAULT_MIN_BASS: Final = 0
 DEFAULT_MAX_BASS: Final = 14
+DEFAULT_MIN_TREBLE: Final = 0
 DEFAULT_MAX_TREBLE: Final = 14
+DEFAULT_MIN_BALANCE: Final = 0
 DEFAULT_MAX_BALANCE: Final = 20
 
 # Service names
