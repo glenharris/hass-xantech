@@ -11,7 +11,6 @@ from homeassistant.exceptions import ConfigEntryError
 from pyxantech import get_device_config
 
 from .const import (
-    AMP_TYPE_SONANCE6,
     DEFAULT_MAX_BALANCE,
     DEFAULT_MAX_BASS,
     DEFAULT_MAX_TREBLE,
@@ -20,27 +19,7 @@ from .const import (
     DEFAULT_MIN_TREBLE,
     DEFAULT_MIN_VOLUME,
     MAX_VOLUME,
-    SONANCE6_MAX_BALANCE,
-    SONANCE6_MAX_BASS,
-    SONANCE6_MAX_TREBLE,
-    SONANCE6_MAX_VOLUME,
-    SONANCE6_MIN_BALANCE,
-    SONANCE6_MIN_BASS,
-    SONANCE6_MIN_TREBLE,
-    SONANCE6_MIN_VOLUME,
 )
-
-# Ranges from hass-xantech#20. Used only when pyxantech does not publish the key.
-_SONANCE_FALLBACKS: dict[str, int] = {
-    'min_volume': SONANCE6_MIN_VOLUME,
-    'max_volume': SONANCE6_MAX_VOLUME,
-    'min_bass': SONANCE6_MIN_BASS,
-    'max_bass': SONANCE6_MAX_BASS,
-    'min_treble': SONANCE6_MIN_TREBLE,
-    'max_treble': SONANCE6_MAX_TREBLE,
-    'min_balance': SONANCE6_MIN_BALANCE,
-    'max_balance': SONANCE6_MAX_BALANCE,
-}
 
 
 def device_config_int(amp_type: str, key: str, default: int) -> int:
@@ -52,16 +31,6 @@ def device_config_int(amp_type: str, key: str, default: int) -> int:
     if value is None:
         return default
     return int(value)
-
-
-def fallback_limit(amp_type: str, key: str, generic: int) -> int:
-    """Return the missing-key default for this amplifier.
-
-    Sonance keeps the #20 ranges when the library has no such key.
-    """
-    if amp_type != AMP_TYPE_SONANCE6:
-        return generic
-    return _SONANCE_FALLBACKS[key]
 
 
 @dataclass(frozen=True)
@@ -100,53 +69,25 @@ def read_amp_limits(amp_type: str) -> AmpLimits:
     Called from the config entry setup, before platforms are forwarded.
     Home Assistant swallows ConfigEntryError raised from a platform.
     """
-    min_volume = device_config_int(
-        amp_type,
-        'min_volume',
-        fallback_limit(amp_type, 'min_volume', DEFAULT_MIN_VOLUME),
-    )
-    max_volume = device_config_int(
-        amp_type,
-        'max_volume',
-        fallback_limit(amp_type, 'max_volume', MAX_VOLUME),
-    )
+    min_volume = device_config_int(amp_type, 'min_volume', DEFAULT_MIN_VOLUME)
+    max_volume = device_config_int(amp_type, 'max_volume', MAX_VOLUME)
     _require_range(amp_type, 'volume', min_volume, max_volume)
 
     supports_bass = _supports(amp_type, 'supports_bass')
-    min_bass = device_config_int(
-        amp_type, 'min_bass', fallback_limit(amp_type, 'min_bass', DEFAULT_MIN_BASS)
-    )
-    max_bass = device_config_int(
-        amp_type, 'max_bass', fallback_limit(amp_type, 'max_bass', DEFAULT_MAX_BASS)
-    )
+    min_bass = device_config_int(amp_type, 'min_bass', DEFAULT_MIN_BASS)
+    max_bass = device_config_int(amp_type, 'max_bass', DEFAULT_MAX_BASS)
     if supports_bass:
         _require_range(amp_type, 'bass', min_bass, max_bass)
 
     supports_treble = _supports(amp_type, 'supports_treble')
-    min_treble = device_config_int(
-        amp_type,
-        'min_treble',
-        fallback_limit(amp_type, 'min_treble', DEFAULT_MIN_TREBLE),
-    )
-    max_treble = device_config_int(
-        amp_type,
-        'max_treble',
-        fallback_limit(amp_type, 'max_treble', DEFAULT_MAX_TREBLE),
-    )
+    min_treble = device_config_int(amp_type, 'min_treble', DEFAULT_MIN_TREBLE)
+    max_treble = device_config_int(amp_type, 'max_treble', DEFAULT_MAX_TREBLE)
     if supports_treble:
         _require_range(amp_type, 'treble', min_treble, max_treble)
 
     supports_balance = _supports(amp_type, 'supports_balance')
-    min_balance = device_config_int(
-        amp_type,
-        'min_balance',
-        fallback_limit(amp_type, 'min_balance', DEFAULT_MIN_BALANCE),
-    )
-    max_balance = device_config_int(
-        amp_type,
-        'max_balance',
-        fallback_limit(amp_type, 'max_balance', DEFAULT_MAX_BALANCE),
-    )
+    min_balance = device_config_int(amp_type, 'min_balance', DEFAULT_MIN_BALANCE)
+    max_balance = device_config_int(amp_type, 'max_balance', DEFAULT_MAX_BALANCE)
     if supports_balance:
         _require_range(amp_type, 'balance', min_balance, max_balance)
 

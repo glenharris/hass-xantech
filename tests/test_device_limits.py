@@ -19,14 +19,6 @@ from custom_components.xantech.const import (
     DEFAULT_MAX_TREBLE,
     DEFAULT_MIN_VOLUME,
     MAX_VOLUME,
-    SONANCE6_MAX_BALANCE,
-    SONANCE6_MAX_BASS,
-    SONANCE6_MAX_TREBLE,
-    SONANCE6_MAX_VOLUME,
-    SONANCE6_MIN_BALANCE,
-    SONANCE6_MIN_BASS,
-    SONANCE6_MIN_TREBLE,
-    SONANCE6_MIN_VOLUME,
 )
 from custom_components.xantech.coordinator import XantechCoordinator
 from custom_components.xantech.device_config import (
@@ -104,7 +96,7 @@ async def test_volume_limits_are_read_once_at_setup(
 ) -> None:
     """Media players store the setup-time range and do not read it again.
 
-    A published min_volume of 0 replaces the Sonance floor of 40.
+    A published min_volume of 0 is kept.
     """
     added: list[Any] = []
     calls: list[str] = []
@@ -310,11 +302,11 @@ async def test_configured_zero_tone_max_refuses_setup(
     assert str(err.value) == 'Invalid bass range for sonance6: min_bass=0 max_bass=0'
 
 
-async def test_sonance_missing_keys_keep_approved_ranges(
+async def test_sonance_missing_keys_use_generic_defaults(
     hass: HomeAssistant,
     mock_amp: MagicMock,
 ) -> None:
-    """Without device-config keys, Sonance keeps the #20 ranges, including 40."""
+    """Sonance with no device-config keys uses the same defaults as other amps."""
     players: list[Any] = []
     with patch(
         'custom_components.xantech.device_config.get_device_config',
@@ -334,8 +326,8 @@ async def test_sonance_missing_keys_keep_approved_ranges(
         await player.async_set_volume_level(1.0)
 
     assert [call.args for call in mock_volume.await_args_list] == [
-        (1, SONANCE6_MIN_VOLUME),
-        (1, SONANCE6_MAX_VOLUME),
+        (1, DEFAULT_MIN_VOLUME),
+        (1, MAX_VOLUME),
     ]
 
     entities = await _setup_numbers(
@@ -347,19 +339,19 @@ async def test_sonance_missing_keys_keep_approved_ranges(
             'supports_balance': True,
         },
     )
-    assert entities['bass'].native_min_value == SONANCE6_MIN_BASS
-    assert entities['bass'].native_max_value == SONANCE6_MAX_BASS
-    assert entities['treble'].native_min_value == SONANCE6_MIN_TREBLE
-    assert entities['treble'].native_max_value == SONANCE6_MAX_TREBLE
-    assert entities['balance'].native_min_value == SONANCE6_MIN_BALANCE
-    assert entities['balance'].native_max_value == SONANCE6_MAX_BALANCE
+    assert entities['bass'].native_min_value == 0
+    assert entities['bass'].native_max_value == DEFAULT_MAX_BASS
+    assert entities['treble'].native_min_value == 0
+    assert entities['treble'].native_max_value == DEFAULT_MAX_TREBLE
+    assert entities['balance'].native_min_value == 0
+    assert entities['balance'].native_max_value == DEFAULT_MAX_BALANCE
 
 
 async def test_sonance_limits_come_from_pyxantech(
     hass: HomeAssistant,
     mock_amp: MagicMock,
 ) -> None:
-    """Published Sonance keys are used. min_volume is absent, so the floor stays 40."""
+    """Sonance volume is 0 to the library max, and tone mins are negative."""
     players: list[Any] = []
     player_entry = _entry(hass, mock_amp, 'sonance6', read_amp_limits('sonance6'))
     await setup_players(hass, player_entry, players.extend)
@@ -373,7 +365,7 @@ async def test_sonance_limits_come_from_pyxantech(
         await player.async_set_volume_level(1.0)
 
     assert [call.args for call in mock_volume.await_args_list] == [
-        (1, SONANCE6_MIN_VOLUME),
+        (1, 0),
         (1, 60),
     ]
 
