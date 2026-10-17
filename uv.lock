@@ -1692,7 +1692,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23.0" },
     { name = "pytest-homeassistant-custom-component", marker = "extra == 'dev'", specifier = ">=0.13.0" },
-    { name = "pyxantech", specifier = ">=0.10.5" },
+    { name = "pyxantech", git = "https://github.com/rsnodgrass/pyxantech?rev=1d5e123fe592f4180a0395aa6ca875c614770086" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.0" },
 ]
 provides-extras = ["dev"]
@@ -3693,18 +3693,14 @@ wheels = [
 
 [[package]]
 name = "pyxantech"
-version = "0.10.5"
-source = { registry = "https://pypi.org/simple" }
+version = "0.10.7"
+source = { git = "https://github.com/rsnodgrass/pyxantech?rev=1d5e123fe592f4180a0395aa6ca875c614770086#1d5e123fe592f4180a0395aa6ca875c614770086" }
 dependencies = [
     { name = "pyserial" },
     { name = "pyserial-asyncio" },
     { name = "pyyaml", version = "6.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13.2'" },
     { name = "pyyaml", version = "6.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13.2'" },
     { name = "ratelimit" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/25/c7/76d0eb602a64718fbd645c74b1f48be120dd989ef14b6f6bf708e2ffd1bd/pyxantech-0.10.5.tar.gz", hash = "sha256:d4a59d5824dcc8178de72a7eb3976249e1d9c514a5c063aa37fdf19e593ce394", size = 29125, upload-time = "2026-01-14T04:07:08.315Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/a1/7f/2f7c0690a6cf2fda15b46e6ef02ce42517e78f80bc03345f3cbabd71e217/pyxantech-0.10.5-py3-none-any.whl", hash = "sha256:01939233e12a96f44ccca30574146f0d907c5e01d4dc6cf1d337300af5da7513", size = 27624, upload-time = "2026-01-14T04:07:06.693Z" },
 ]
 
 [[package]]
