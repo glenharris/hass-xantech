@@ -46,6 +46,8 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         self.amp = amp
         self.amp_name = amp_name
         self.zone_ids = zone_ids
+        self._command_seq = 0
+        self._zone_commands: dict[int, list[tuple[int, dict[str, Any]]]] = {}
 
     async def _async_update_data(self) -> dict[int, dict[str, Any]]:
         """Fetch data from the amplifier for all zones.
@@ -58,15 +60,12 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         Returns:
             Dictionary mapping zone_id to zone status dict
         """
-        if self.data is None:
-            previous: dict[int, dict[str, Any]] = {}
-        else:
-            previous = self.data
-
         zone_statuses: dict[int, dict[str, Any]] = {}
         answered = 0
 
         for zone_id in self.zone_ids:
+            # A set that lands after this read must not be overwritten by it.
+            read_seq = self._command_seq
             try:
                 status = await self.amp.zone_status(zone_id)
             except Exception:
@@ -77,8 +76,13 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
                 LOG.debug('No status returned for zone %d', zone_id)
                 continue
 
-            known = previous.get(zone_id, {})
-            zone_statuses[zone_id] = {**known, **status}
+            if self.data is None:
+                known: dict[str, Any] = {}
+            else:
+                known = self.data.get(zone_id, {})
+            merged = {**known, **status}
+            merged.update(self._commanded_fields_after(zone_id, read_seq))
+            zone_statuses[zone_id] = merged
             answered += 1
 
         if len(self.zone_ids) == 0:
@@ -89,68 +93,101 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         LOG.debug('Updated %d zones for %s', answered, self.amp_name)
         return zone_statuses
 
+    def _commanded_fields_after(self, zone_id: int, read_seq: int) -> dict[str, Any]:
+        """Return fields commanded after read_seq, and drop the older ones."""
+        fields: dict[str, Any] = {}
+        kept: list[tuple[int, dict[str, Any]]] = []
+        for seq, command_fields in self._zone_commands.get(zone_id, []):
+            if seq > read_seq:
+                fields.update(command_fields)
+                kept.append((seq, command_fields))
+        if kept:
+            self._zone_commands[zone_id] = kept
+        else:
+            self._zone_commands.pop(zone_id, None)
+        return fields
+
+    def _apply_zone_fields(self, zone_id: int, fields: dict[str, Any]) -> None:
+        """Merge commanded fields into coordinator data without polling.
+
+        The sequence number lets a poll that is already in flight re-apply
+        this command when it merges the zone it has just read.
+        """
+        self._command_seq += 1
+        command = (self._command_seq, dict(fields))
+        self._zone_commands.setdefault(zone_id, []).append(command)
+
+        if self.data is None:
+            data: dict[int, dict[str, Any]] = {}
+        else:
+            data = {zone: dict(status) for zone, status in self.data.items()}
+        zone = dict(data.get(zone_id, {}))
+        zone.update(fields)
+        data[zone_id] = zone
+        self.async_set_updated_data(data)
+
     async def async_set_zone_power(self, zone_id: int, power: bool) -> None:
         """Set power state for a zone."""
         try:
             await self.amp.set_power(zone_id, power)
-            await self.async_request_refresh()
         except Exception:
             LOG.exception('Failed to set power for zone %d', zone_id)
             raise
+        self._apply_zone_fields(zone_id, {'power': power})
 
     async def async_set_zone_source(self, zone_id: int, source_id: int) -> None:
         """Set source for a zone."""
         try:
             await self.amp.set_source(zone_id, source_id)
-            await self.async_request_refresh()
         except Exception:
             LOG.exception('Failed to set source for zone %d', zone_id)
             raise
+        self._apply_zone_fields(zone_id, {'source': source_id})
 
     async def async_set_zone_volume(self, zone_id: int, volume: int) -> None:
-        """Set volume for a zone (0-38 scale)."""
+        """Set volume for a zone on the device scale."""
         try:
             await self.amp.set_volume(zone_id, volume)
-            await self.async_request_refresh()
         except Exception:
             LOG.exception('Failed to set volume for zone %d', zone_id)
             raise
+        self._apply_zone_fields(zone_id, {'volume': volume})
 
     async def async_set_zone_mute(self, zone_id: int, mute: bool) -> None:
         """Set mute state for a zone."""
         try:
             await self.amp.set_mute(zone_id, mute)
-            await self.async_request_refresh()
         except Exception:
             LOG.exception('Failed to set mute for zone %d', zone_id)
             raise
+        self._apply_zone_fields(zone_id, {'mute': mute})
 
     async def async_set_zone_bass(self, zone_id: int, bass: int) -> None:
-        """Set bass level for a zone (0-14, where 7 is neutral)."""
+        """Set bass level for a zone on the device scale."""
         try:
             await self.amp.set_bass(zone_id, bass)
-            await self.async_request_refresh()
         except Exception:
             LOG.exception('Failed to set bass for zone %d', zone_id)
             raise
+        self._apply_zone_fields(zone_id, {'bass': bass})
 
     async def async_set_zone_treble(self, zone_id: int, treble: int) -> None:
-        """Set treble level for a zone (0-14, where 7 is neutral)."""
+        """Set treble level for a zone on the device scale."""
         try:
             await self.amp.set_treble(zone_id, treble)
-            await self.async_request_refresh()
         except Exception:
             LOG.exception('Failed to set treble for zone %d', zone_id)
             raise
+        self._apply_zone_fields(zone_id, {'treble': treble})
 
     async def async_set_zone_balance(self, zone_id: int, balance: int) -> None:
-        """Set balance for a zone (0-20, where 10 is center)."""
+        """Set balance for a zone on the device scale."""
         try:
             await self.amp.set_balance(zone_id, balance)
-            await self.async_request_refresh()
         except Exception:
             LOG.exception('Failed to set balance for zone %d', zone_id)
             raise
+        self._apply_zone_fields(zone_id, {'balance': balance})
 
     async def async_get_zone_snapshot(self, zone_id: int) -> dict[str, Any] | None:
         """Get a snapshot of zone status for later restoration."""
