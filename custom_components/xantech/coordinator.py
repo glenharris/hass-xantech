@@ -46,49 +46,48 @@ class XantechCoordinator(DataUpdateCoordinator[dict[int, dict[str, Any]]]):
         self.amp = amp
         self.amp_name = amp_name
         self.zone_ids = zone_ids
-        self._consecutive_errors = 0
-        self._max_consecutive_errors = 5
 
     async def _async_update_data(self) -> dict[int, dict[str, Any]]:
         """Fetch data from the amplifier for all zones.
 
+        A reply that only includes some fields is merged into the last known
+        state for that zone. A zone that throws or returns nothing is left
+        out. Sonance status is several queries, and pyxantech returns only
+        the fields that matched.
+
         Returns:
             Dictionary mapping zone_id to zone status dict
         """
+        if self.data is None:
+            previous: dict[int, dict[str, Any]] = {}
+        else:
+            previous = self.data
+
         zone_statuses: dict[int, dict[str, Any]] = {}
+        answered = 0
 
-        try:
-            for zone_id in self.zone_ids:
-                try:
-                    status = await self.amp.zone_status(zone_id)
-                    if status:
-                        zone_statuses[zone_id] = status
-                    else:
-                        LOG.debug('No status returned for zone %d', zone_id)
-                except Exception:
-                    LOG.warning(
-                        'Failed to get status for zone %d', zone_id, exc_info=True
-                    )
-                    # continue with other zones even if one fails
+        for zone_id in self.zone_ids:
+            try:
+                status = await self.amp.zone_status(zone_id)
+            except Exception:
+                LOG.warning('Failed to get status for zone %d', zone_id, exc_info=True)
+                continue
 
-            # reset error counter on success
-            self._consecutive_errors = 0
+            if not status:
+                LOG.debug('No status returned for zone %d', zone_id)
+                continue
 
-            LOG.debug('Updated %d zones for %s', len(zone_statuses), self.amp_name)
+            known = previous.get(zone_id, {})
+            zone_statuses[zone_id] = {**known, **status}
+            answered += 1
+
+        if len(self.zone_ids) == 0:
             return zone_statuses
+        if answered == 0:
+            raise UpdateFailed(f'No zone returned status for {self.amp_name}')
 
-        except Exception as err:
-            self._consecutive_errors += 1
-            if self._consecutive_errors >= self._max_consecutive_errors:
-                LOG.error(
-                    'Failed to update %s after %d attempts',
-                    self.amp_name,
-                    self._consecutive_errors,
-                    exc_info=err,
-                )
-            raise UpdateFailed(
-                f'Error communicating with {self.amp_name}: {err}'
-            ) from err
+        LOG.debug('Updated %d zones for %s', answered, self.amp_name)
+        return zone_statuses
 
     async def async_set_zone_power(self, zone_id: int, power: bool) -> None:
         """Set power state for a zone."""
